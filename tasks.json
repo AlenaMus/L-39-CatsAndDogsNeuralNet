@@ -1,0 +1,297 @@
+{
+  "project": "Cats & Dogs Neural Network Classifier",
+  "version": "1.0.0",
+  "agent": "backend-developer",
+  "description": "PyTorch binary image classification with GPU support and Google Colab notebook",
+  "tech_stack": {
+    "framework": "PyTorch >= 2.1.0",
+    "dataset": "Oxford-IIIT Pet Dataset (public, auto-download via torchvision)",
+    "gpu": "CUDA / MPS / CPU auto-detection",
+    "notebook": "Jupyter / Google Colab"
+  },
+  "tasks": [
+    {
+      "id": "T-001",
+      "phase": "Setup",
+      "title": "Environment Setup",
+      "priority": "critical",
+      "status": "ready",
+      "description": "Install all required Python packages",
+      "steps": [
+        "Create a Python 3.10+ virtual environment",
+        "Run: pip install -r requirements.txt",
+        "Verify GPU with: python -c \"import torch; print(torch.cuda.is_available())\""
+      ],
+      "acceptance_criteria": [
+        "torch.cuda.is_available() returns True on GPU machine",
+        "All packages import without error"
+      ],
+      "files": ["requirements.txt"]
+    },
+    {
+      "id": "T-002",
+      "phase": "Data",
+      "title": "Dataset Preparation",
+      "priority": "critical",
+      "status": "ready",
+      "description": "Obtain the Oxford-IIIT Pet Dataset (public, free, auto-download)",
+      "steps": [
+        "Dataset downloads automatically on first training run (~750 MB)",
+        "Stored in ./data/oxford-iiit-pet/",
+        "Binary labels: Cat=0, Dog=1 (derived from species tag)"
+      ],
+      "acceptance_criteria": [
+        "OxfordIIITPet downloads without error",
+        "DataLoader returns (B, 3, 224, 224) tensors with float labels 0.0 or 1.0",
+        "Train/Val split: ~80/20 of 7,349 total images"
+      ],
+      "files": ["dataset.py"],
+      "dataset_info": {
+        "name": "Oxford-IIIT Pet Dataset",
+        "source": "torchvision.datasets.OxfordIIITPet",
+        "url": "https://www.robots.ox.ac.uk/~vgg/data/pets/",
+        "total_images": 7349,
+        "classes": ["Cat", "Dog"],
+        "license": "Creative Commons Attribution-ShareAlike 4.0"
+      }
+    },
+    {
+      "id": "T-003",
+      "phase": "Model",
+      "title": "Model Definition & Architecture",
+      "priority": "high",
+      "status": "complete",
+      "description": "Define CNN model architectures for binary classification",
+      "steps": [
+        "Implement CatDogCNN: 4 Conv blocks + GAP + classifier head",
+        "Implement ResNet-18 transfer learning variant",
+        "Implement ResNet-50 transfer learning variant",
+        "Expose build_model() factory function"
+      ],
+      "acceptance_criteria": [
+        "model.py imports without error",
+        "build_model('resnet18')(torch.randn(4,3,224,224)).shape == (4, 1)",
+        "Trainable param count printed on run"
+      ],
+      "files": ["model.py"]
+    },
+    {
+      "id": "T-004",
+      "phase": "Training",
+      "title": "GPU Training Script",
+      "priority": "critical",
+      "status": "complete",
+      "description": "Train the model on GPU with full training loop",
+      "steps": [
+        "Run: python train.py --model resnet18 --epochs 15",
+        "Monitor loss and accuracy each epoch",
+        "Best model saved to ./output/best_model.pth",
+        "Training history saved to ./output/training_history.json",
+        "Training curves plot saved to ./output/training_curves.png"
+      ],
+      "cli_options": {
+        "--model": ["custom_cnn", "resnet18", "resnet50"],
+        "--source": ["oxford", "local"],
+        "--epochs": "integer (default: 15)",
+        "--batch-size": "integer (default: 32)",
+        "--lr": "float (default: 0.0001)",
+        "--data-dir": "string (default: ./data)",
+        "--output-dir": "string (default: ./output)"
+      },
+      "acceptance_criteria": [
+        "Training loop runs without error on CUDA GPU",
+        "Validation accuracy >= 90% after 15 epochs with ResNet-18",
+        "best_model.pth file created",
+        "training_curves.png generated"
+      ],
+      "files": ["train.py", "model.py", "dataset.py"]
+    },
+    {
+      "id": "T-005",
+      "phase": "Inference",
+      "title": "Single Image Prediction",
+      "priority": "high",
+      "status": "complete",
+      "description": "Run inference on any cat or dog image",
+      "steps": [
+        "Load best_model.pth checkpoint",
+        "Run: python predict.py --image path/to/image.jpg",
+        "Output shows label (Cat/Dog) and confidence percentage"
+      ],
+      "acceptance_criteria": [
+        "predict.py loads checkpoint without error",
+        "Output format: label + confidence + per-class probabilities",
+        "Works with JPEG and PNG files"
+      ],
+      "files": ["predict.py"]
+    },
+    {
+      "id": "T-006",
+      "phase": "Notebook",
+      "title": "Google Colab Jupyter Notebook",
+      "priority": "critical",
+      "status": "complete",
+      "description": "End-to-end notebook for Google Colab with free T4 GPU",
+      "steps": [
+        "Upload CatsAndDogs_Colab.ipynb to Google Drive",
+        "Open in Google Colab",
+        "Set Runtime > Change Runtime > GPU (T4)",
+        "Run All Cells (Ctrl+F9)"
+      ],
+      "acceptance_criteria": [
+        "All cells run without error on Colab T4 GPU",
+        "Dataset downloads automatically in Colab",
+        "Model trains and achieves >90% val accuracy",
+        "Inference demo cell shows correct predictions"
+      ],
+      "files": ["CatsAndDogs_Colab.ipynb"]
+    },
+    {
+      "id": "T-007",
+      "phase": "Optimization",
+      "title": "Hyperparameter Tuning (Optional)",
+      "priority": "low",
+      "status": "optional",
+      "description": "Tune model for better performance",
+      "steps": [
+        "Try --model resnet50 for higher accuracy",
+        "Increase --epochs to 30",
+        "Adjust --lr 0.00005 for finer tuning",
+        "Add --batch-size 64 if GPU VRAM allows"
+      ],
+      "acceptance_criteria": [
+        "Validation accuracy > 95% achievable with ResNet-50"
+      ],
+      "files": ["train.py"]
+    },
+    {
+      "id": "T-008",
+      "phase": "Visualization",
+      "title": "Data Preview — 2×2 Grid (Images 6–9 with Labels)",
+      "priority": "high",
+      "status": "ready",
+      "description": "Display a 2×2 grid of dataset images (indices 6–9) with their Cat/Dog labels as a sanity check that the dataset and labels are loaded correctly",
+      "steps": [
+        "Load the training DataLoader from dataset.py",
+        "Extract images at dataset indices 6, 7, 8, 9",
+        "Reverse the ImageNet normalisation (mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225]) so pixels render correctly",
+        "Create a 2×2 matplotlib figure with plt.subplots(2, 2, figsize=(6, 6))",
+        "Display each image with ax.imshow() and set the title to 'Cat' or 'Dog' based on the label tensor",
+        "Save the figure to ./output/data_preview.png and call plt.show()"
+      ],
+      "acceptance_criteria": [
+        "2×2 grid renders 4 distinct pet images without distortion",
+        "Each subplot title shows the correct species label (Cat or Dog)",
+        "output/data_preview.png is saved successfully",
+        "Script completes without requiring a trained model checkpoint"
+      ],
+      "packages_used": ["matplotlib", "torchvision", "torch"],
+      "files": ["dataset.py", "visualize.py"]
+    },
+    {
+      "id": "T-009",
+      "phase": "Visualization",
+      "title": "Training Visualization — Loss & Accuracy Curves",
+      "priority": "high",
+      "status": "ready",
+      "description": "Plot training and validation loss alongside training and validation accuracy over all epochs from the saved training history JSON",
+      "steps": [
+        "Load ./output/training_history.json which contains per-epoch train_loss, val_loss, train_acc, val_acc lists",
+        "Create a 1×2 matplotlib figure (figsize=(12, 4))",
+        "Left subplot: plot train_loss and val_loss vs epoch with legend, xlabel='Epoch', ylabel='Loss', title='Loss Curves'",
+        "Right subplot: plot train_acc and val_acc vs epoch with legend, xlabel='Epoch', ylabel='Accuracy (%)', title='Accuracy Curves'",
+        "Mark the best validation epoch with a vertical dashed line on both subplots",
+        "Save the figure to ./output/training_curves.png (overwrite if exists) and call plt.show()"
+      ],
+      "acceptance_criteria": [
+        "Both subplots render with correctly labeled axes and legends",
+        "Curves are smooth and match the values in training_history.json",
+        "Best-epoch marker is visible on both subplots",
+        "output/training_curves.png is saved successfully",
+        "Script exits cleanly if training_history.json does not exist and prints a helpful error message"
+      ],
+      "packages_used": ["matplotlib", "json"],
+      "files": ["train.py", "visualize.py", "output/training_history.json"]
+    },
+    {
+      "id": "T-010",
+      "phase": "Visualization",
+      "title": "Confusion Matrix",
+      "priority": "high",
+      "status": "ready",
+      "description": "Run the best model over the full validation split, collect predictions vs ground-truth labels, and render a labelled confusion matrix heatmap",
+      "steps": [
+        "Load best_model.pth checkpoint and set model to eval mode",
+        "Iterate over the validation DataLoader (no gradient computation) and accumulate predicted labels (threshold sigmoid output at 0.5) and true labels",
+        "Compute the 2×2 confusion matrix with sklearn.metrics.confusion_matrix(y_true, y_pred)",
+        "Plot with seaborn.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Cat','Dog'], yticklabels=['Cat','Dog'])",
+        "Add title 'Confusion Matrix — Validation Set', xlabel='Predicted', ylabel='Actual'",
+        "Print overall accuracy, precision, recall, and F1-score using sklearn.metrics.classification_report",
+        "Save the figure to ./output/confusion_matrix.png and call plt.show()"
+      ],
+      "acceptance_criteria": [
+        "Confusion matrix is a 2×2 integer grid with Cat and Dog axis labels",
+        "Printed classification report shows precision/recall/F1 per class",
+        "output/confusion_matrix.png is saved successfully",
+        "Script handles missing checkpoint gracefully with a clear error message"
+      ],
+      "packages_used": ["torch", "torchvision", "scikit-learn", "seaborn", "matplotlib"],
+      "files": ["model.py", "dataset.py", "visualize.py", "output/best_model.pth"]
+    },
+    {
+      "id": "T-011",
+      "phase": "Visualization",
+      "title": "Unknown Image Prediction — Inference + Confidence Chart",
+      "priority": "high",
+      "status": "ready",
+      "description": "Accept any image path (cat, dog, or unknown), run inference with the trained model, display the image alongside a horizontal bar chart showing Cat vs Dog confidence scores",
+      "steps": [
+        "Accept an image path via CLI argument --image or hardcode a test path for notebook use",
+        "Apply the same preprocessing as training: Resize(256) → CenterCrop(224) → ToTensor() → Normalize(ImageNet stats)",
+        "Load best_model.pth, run a forward pass, apply sigmoid to get P(Dog); derive P(Cat) = 1 − P(Dog)",
+        "Determine the predicted label: Dog if P(Dog) ≥ 0.5 else Cat",
+        "Create a 1×2 matplotlib figure (figsize=(10, 4))",
+        "Left subplot: display the original image with title 'Input Image'",
+        "Right subplot: horizontal bar chart with bars for Cat and Dog, values as percentages, colour the winning bar green and the losing bar red; add a text label on each bar showing the percentage",
+        "Print a summary line: 'Result: <Label>  (<confidence>% confident)'",
+        "Save the figure to ./output/prediction_<imagename>.png and call plt.show()"
+      ],
+      "acceptance_criteria": [
+        "Script accepts any JPEG or PNG image without errors",
+        "Left subplot shows the original (un-normalised) image correctly oriented",
+        "Right subplot horizontal bar chart shows two bars labelled Cat and Dog with percentage values",
+        "Winning class bar is green; losing class bar is red",
+        "Printed result line matches the bar chart prediction",
+        "output/prediction_<imagename>.png is saved successfully"
+      ],
+      "packages_used": ["torch", "torchvision", "matplotlib", "Pillow"],
+      "files": ["model.py", "predict.py", "output/best_model.pth"]
+    }
+  ],
+  "milestones": [
+    {
+      "id": "M-1",
+      "name": "Project Setup Complete",
+      "tasks": ["T-001", "T-002"],
+      "deliverable": "Environment ready, dataset downloading"
+    },
+    {
+      "id": "M-2",
+      "name": "First Training Run",
+      "tasks": ["T-003", "T-004"],
+      "deliverable": "Model trained, best_model.pth saved"
+    },
+    {
+      "id": "M-3",
+      "name": "Full Pipeline Working",
+      "tasks": ["T-005", "T-006"],
+      "deliverable": "Inference working, Colab notebook fully functional"
+    },
+    {
+      "id": "M-4",
+      "name": "Visualization Suite Complete",
+      "tasks": ["T-008", "T-009", "T-010", "T-011"],
+      "deliverable": "Data preview grid, training curves, confusion matrix, and confidence chart all generated"
+    }
+  ]
+}
