@@ -204,7 +204,7 @@ class OxfordPetBinaryDataset(Dataset):
         self.inner = OxfordIIITPet(
             root=root,
             split=split,
-            target_types="species",   # returns {1=Cat, 2=Dog}; simpler than breed labels
+            target_types="binary-category",  # returns {0=Cat, 1=Dog}; renamed from 'species' in torchvision 0.21+
             transform=transform,
             download=download,
         )
@@ -241,8 +241,8 @@ class OxfordPetBinaryDataset(Dataset):
             image: Float tensor of shape (3, 224, 224) after transforms.
             label: Float tensor scalar — 0.0 for Cat, 1.0 for Dog.
         """
-        image, species = self.inner[idx]           # species ∈ {1, 2}
-        label = torch.tensor(float(species - 1), dtype=torch.float32)  # → {0.0, 1.0}
+        image, species = self.inner[idx]           # binary-category ∈ {0=Cat, 1=Dog}
+        label = torch.tensor(float(species), dtype=torch.float32)  # already {0.0, 1.0}
         return image, label
 
 

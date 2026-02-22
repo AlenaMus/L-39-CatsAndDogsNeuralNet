@@ -17,9 +17,8 @@ env/
 # Dataset (auto-downloaded, ~750 MB — do not commit)
 data/
 
-# Training outputs (large binary files)
+# Training outputs — exclude large model weights, track plots and history
 output/*.pth
-output/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/

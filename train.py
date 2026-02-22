@@ -34,7 +34,7 @@ from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import matplotlib.pyplot as plt
@@ -168,7 +168,7 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         # Forward pass inside autocast for AMP
-        with autocast(enabled=use_amp):
+        with autocast("cuda", enabled=use_amp):
             outputs = model(images)           # (B, 1) raw logits
             loss    = criterion(outputs, labels)
 
@@ -319,7 +319,7 @@ def save_training_plot(history: Dict, save_path: str) -> None:
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()   # WHY close: prevents memory leak if train.py is imported as a module
-    print(f"[Plot] Saved training curves → {save_path}")
+    print(f"[Plot] Saved training curves -> {save_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ def main(args: argparse.Namespace) -> None:
 
     # ── AMP Scaler ───────────────────────────────────────────────────────────
     # enabled=False on CPU/MPS makes it a transparent no-op wrapper
-    scaler = GradScaler(enabled=use_amp)
+    scaler = GradScaler("cuda", enabled=use_amp)
 
     # ── Training Setup ───────────────────────────────────────────────────────
     history: Dict = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
@@ -426,7 +426,7 @@ def main(args: argparse.Namespace) -> None:
     best_ckpt     = save_dir / "best_model.pth"
 
     print(f"\n[Train] Epochs: {args.epochs}  |  Batch: {args.batch_size}  |  AMP: {use_amp}")
-    print(f"[Train] Checkpoints → {save_dir}")
+    print(f"[Train] Checkpoints -> {save_dir}")
     print("-" * 60)
 
     # ── Epoch Loop ───────────────────────────────────────────────────────────
@@ -456,7 +456,7 @@ def main(args: argparse.Namespace) -> None:
                 "val_acc":     val_acc,
                 "class_names": class_names,
             }, best_ckpt)
-            flag = "  ✓ BEST"
+            flag = "  * BEST"
 
         print(
             f"Epoch [{epoch:>3}/{args.epochs}]  "
@@ -468,13 +468,13 @@ def main(args: argparse.Namespace) -> None:
     # ── Post-training ────────────────────────────────────────────────────────
     print("-" * 60)
     print(f"[Done] Best Val Accuracy: {best_val_acc:.2f}%")
-    print(f"[Done] Model saved → {best_ckpt}")
+    print(f"[Done] Model saved -> {best_ckpt}")
 
     # Save history for offline analysis / plotting
     history_path = save_dir / "training_history.json"
     with open(history_path, "w") as f:
         json.dump(history, f, indent=2)
-    print(f"[Done] History saved → {history_path}")
+    print(f"[Done] History saved -> {history_path}")
 
     # Generate and save training plots
     save_training_plot(history, str(save_dir / "training_curves.png"))
