@@ -40,7 +40,31 @@ Binary image classifier that identifies **Cat** or **Dog** in any photo using Py
 
 `* = best checkpoint saved`
 
-### Inference Results — Sample Images
+---
+
+## Validation / Testing Results
+
+> Best checkpoint (`best_model.pth`, epoch 14) evaluated on the held-out validation set — 736 images never seen during training.
+
+### Per-Class Accuracy
+
+| Class | Correct | Total | Accuracy |
+|---|---|---|---|
+| Cat | 240 | 240 | **100.00 %** |
+| Dog | 494 | 496 | **99.60 %** |
+| **Overall** | **734** | **736** | **99.73 %** |
+
+### Confusion Matrix
+
+|  | Predicted Cat | Predicted Dog |
+|---|---|---|
+| **Actual Cat** | 240 (TN) | 0 (FP) |
+| **Actual Dog** | 2 (FN) | 494 (TP) |
+
+- **0 false positives** — every image the model called "Cat" was truly a Cat.
+- **2 false negatives** — 2 Dog images were misclassified as Cat (out of 496 Dogs).
+
+### Inference Results — Custom Images
 
 | Image | Result | P(Cat) | P(Dog) | Chart |
 |---|---|---|---|---|
