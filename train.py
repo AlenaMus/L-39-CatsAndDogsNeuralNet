@@ -39,7 +39,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import matplotlib.pyplot as plt
 
-from model import build_model, ModelType
+from model import build_model
 from dataset import get_dataloaders
 
 
@@ -161,27 +161,24 @@ def train_one_epoch(
     total   = 0
 
     for images, labels in loader:
-        # Move to GPU — non_blocking=True lets CPU continue while GPU copies
         images = images.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True).unsqueeze(1)  # (B,) → (B,1)
+
+        labels = labels.to(device, non_blocking=True).long()  # (B,) class indices
 
         optimizer.zero_grad(set_to_none=True)
 
-        # Forward pass inside autocast for AMP
         with autocast("cuda", enabled=use_amp):
-            outputs = model(images)           # (B, 1) raw logits
+            outputs = model(images)
             loss    = criterion(outputs, labels)
 
-        # Backward pass with scaled gradients
         scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)            # unscale before clipping
+        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        scaler.step(optimizer)                # updates weights (if no NaN/inf)
-        scaler.update()                       # adjusts scale factor for next step
+        scaler.step(optimizer)
+        scaler.update()
 
-        # Accumulate metrics
-        running_loss += loss.item() * images.size(0)  # weight by batch size
-        preds   = (torch.sigmoid(outputs) >= 0.5).float()  # logit → binary pred
+        running_loss += loss.item() * images.size(0)
+        preds   = outputs.argmax(dim=1)              # (B,) predicted class index
         correct += (preds == labels).sum().item()
         total   += labels.size(0)
 
@@ -236,20 +233,21 @@ def validate(
     Returns:
         (avg_loss, accuracy_percent) over the entire validation set.
     """
-    model.eval()  # disable Dropout; BatchNorm uses running statistics
+    model.eval()
     running_loss = 0.0
     correct = 0
     total   = 0
 
     for images, labels in loader:
         images = images.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True).unsqueeze(1)
+
+        labels = labels.to(device, non_blocking=True).long()
 
         outputs = model(images)
         loss    = criterion(outputs, labels)
 
         running_loss += loss.item() * images.size(0)
-        preds   = (torch.sigmoid(outputs) >= 0.5).float()
+        preds   = outputs.argmax(dim=1)
         correct += (preds == labels).sum().item()
         total   += labels.size(0)
 
@@ -392,18 +390,17 @@ def main(args: argparse.Namespace) -> None:
         data_dir=args.data_dir,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        image_size=150,
     )
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    print(f"\n[Model] Building '{args.model}' ...")
-    model = build_model(args.model, pretrained=True)
-    model = model.to(device)   # move all parameters/buffers to GPU
+    print("\n[Model] Building CatDogCNN (input 150x150) ...")
+    model = build_model().to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[Model] Trainable parameters: {n_params:,}")
 
     # ── Loss function ─────────────────────────────────────────────────────────
-    # WHY BCEWithLogitsLoss: numerically stable sigmoid + BCE in one op
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.CrossEntropyLoss()   # 2-class output [P(Cat), P(Dog)]
 
     # ── Optimiser ─────────────────────────────────────────────────────────────
     # WHY weight_decay=1e-4: mild L2 regularisation to reduce overfitting
@@ -434,7 +431,7 @@ def main(args: argparse.Namespace) -> None:
         t0 = time.time()
 
         train_loss, train_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, scaler, device, use_amp
+            model, train_loader, criterion, optimizer, scaler, device, use_amp,
         )
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         scheduler.step()  # advance cosine LR schedule after each epoch
@@ -451,7 +448,7 @@ def main(args: argparse.Namespace) -> None:
             best_val_acc = val_acc
             torch.save({
                 "epoch":       epoch,
-                "model_type":  args.model,
+                "model_type":  "custom_cnn",
                 "model_state": model.state_dict(),
                 "val_acc":     val_acc,
                 "class_names": class_names,
@@ -515,9 +512,6 @@ def parse_args() -> argparse.Namespace:
         description="Cats vs Dogs Neural Net Trainer",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--model",       type=str, default="resnet18",
-                        choices=["custom_cnn", "resnet18", "resnet50"],
-                        help="Model architecture to train")
     parser.add_argument("--source",      type=str, default="oxford",
                         choices=["oxford", "local"],
                         help="Dataset source: 'oxford' auto-downloads, 'local' uses data/train+val")

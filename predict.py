@@ -221,22 +221,19 @@ class CatDogPredictor:
         self.device = device or torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
-        # WHY get_val_transform(): deterministic, same as training val pipeline.
-        # Using train_transform (with random augmentation) would give different
-        # predictions on the same image on different calls — unacceptable.
-        self.transform  = get_val_transform()
-        self.class_names = CLASS_NAMES
-
         # Load the checkpoint dict (contains model_type, state_dict, metadata)
         ckpt = torch.load(checkpoint_path, map_location=self.device)
-        model_type = ckpt.get("model_type", "resnet18")
+        model_type = ckpt.get("model_type", "custom_cnn")
+
+        self.transform   = get_val_transform(150)   # CatDogCNN uses 150×150
+        self.class_names = CLASS_NAMES
 
         print(f"[Predict] Architecture : {model_type}")
         print(f"[Predict] Checkpoint   : {checkpoint_path}")
         print(f"[Predict] Val accuracy : {ckpt.get('val_acc', 'N/A'):.2f}%")
 
         # Reconstruct architecture WITHOUT pretrained weights (we have saved ones)
-        self.model = build_model(model_type, pretrained=False)
+        self.model = build_model()
         self.model.load_state_dict(ckpt["model_state"])
         self.model = self.model.to(self.device)
         self.model.eval()   # critical: disable Dropout + use running BN stats
@@ -306,14 +303,13 @@ class CatDogPredictor:
         if not image_path.exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
 
-        # Open, normalise colour mode, apply transforms
         image  = Image.open(image_path).convert("RGB")
-        tensor = self.transform(image).unsqueeze(0).to(self.device)  # (1,3,224,224)
+        tensor = self.transform(image).unsqueeze(0).to(self.device)
 
-        # Forward pass — output is a scalar logit
-        logit    = self.model(tensor)                   # (1, 1)
-        prob_dog = torch.sigmoid(logit).item()          # P(Dog) ∈ [0, 1]
-        prob_cat = 1.0 - prob_dog                       # P(Cat) = 1 - P(Dog)
+        outputs  = self.model(tensor)          # (1, 2) Softmax [P(Cat), P(Dog)]
+        probs    = outputs[0].cpu()
+        prob_cat = probs[0].item()
+        prob_dog = probs[1].item()
 
         predicted_class = "Dog" if prob_dog >= 0.5 else "Cat"
         confidence      = prob_dog if prob_dog >= 0.5 else prob_cat
@@ -323,7 +319,6 @@ class CatDogPredictor:
             "confidence": round(confidence * 100, 2),
             "prob_cat":   round(prob_cat * 100, 2),
             "prob_dog":   round(prob_dog * 100, 2),
-            "raw_logit":  round(logit.item(), 4),
         }
 
 

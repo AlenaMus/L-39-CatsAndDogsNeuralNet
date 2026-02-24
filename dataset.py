@@ -38,7 +38,7 @@ from torchvision.datasets import OxfordIIITPet
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-IMAGE_SIZE  = 224                         # standard ImageNet input resolution
+IMAGE_SIZE  = 224                         # default input resolution (ResNet)
 MEAN        = [0.485, 0.456, 0.406]       # ImageNet channel means (R, G, B)
 STD         = [0.229, 0.224, 0.225]       # ImageNet channel standard deviations
 CLASS_NAMES = ["Cat", "Dog"]              # index 0 = Cat, index 1 = Dog
@@ -48,64 +48,10 @@ CLASS_NAMES = ["Cat", "Dog"]              # index 0 = Cat, index 1 = Dog
 # get_train_transform() — Augmentation Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_train_transform() -> transforms.Compose:
-    """
-    Build the augmentation pipeline applied only during training.
-
-    WHAT IT DOES:
-      Returns a composed sequence of image transformations that randomly
-      alter each training image every epoch, effectively multiplying
-      the diversity of the dataset without collecting new photos.
-
-    WHY EACH AUGMENTATION (in order):
-
-      1. Resize((256, 256)):
-         Rescales all images to a uniform size before cropping.
-         WHY 256 not 224: gives the random crop room to sample from
-         different spatial positions, so every epoch sees a slightly
-         different view of the same image — free data augmentation.
-
-      2. RandomCrop(224):
-         Randomly crops a 224×224 patch from the 256×256 resized image.
-         WHY random (not center) crop: cat/dog subjects are not always
-         centred; random crop forces the model to be position-invariant.
-
-      3. RandomHorizontalFlip(p=0.5):
-         Mirrors the image left-to-right with 50% probability.
-         WHY: Cats and dogs look the same facing left or right. This
-         doubles the effective dataset size at zero cost. Horizontal
-         flip is the safest augmentation for natural images — never
-         use vertical flip (upside-down pets are not in the test set).
-
-      4. RandomRotation(15°):
-         Rotates image by a random angle in [-15°, +15°].
-         WHY: Animals are photographed at various angles. Small rotations
-         prevent the model from relying on orientation as a feature.
-
-      5. ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1):
-         Randomly alters colour properties.
-         WHY: Lighting varies dramatically between photos (indoor, outdoor,
-         flash, shade). Jitter forces the model to rely on shape/texture,
-         not specific colour tones. hue=0.1 is small to avoid unrealistic
-         colours (e.g. green cats).
-
-      6. ToTensor():
-         Converts PIL Image (H, W, C) uint8 to FloatTensor (C, H, W) in [0, 1].
-         WHY: PyTorch tensors are the required format; also transposes channels.
-
-      7. Normalize(MEAN, STD):
-         Subtracts per-channel ImageNet mean and divides by std so the
-         input distribution matches what pretrained models (ResNet) expect.
-         WHY: Pretrained models were trained on normalised ImageNet data.
-         Applying the same normalisation ensures the pretrained features
-         activate correctly on our pet images without re-training from scratch.
-
-    Returns:
-        transforms.Compose — callable that transforms a PIL Image to a Tensor.
-    """
+def get_train_transform(image_size: int = IMAGE_SIZE) -> transforms.Compose:
+    """Training augmentation pipeline — resizes to image_size and applies random augmentation."""
     return transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.RandomCrop(IMAGE_SIZE),
+        transforms.Resize((image_size, image_size)),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomRotation(degrees=15),
         transforms.ColorJitter(brightness=0.3, contrast=0.3,
@@ -119,32 +65,10 @@ def get_train_transform() -> transforms.Compose:
 # get_val_transform() — Deterministic Inference Transform
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_val_transform() -> transforms.Compose:
-    """
-    Build the deterministic transform used for validation and inference.
-
-    WHAT IT DOES:
-      Returns a fixed (non-random) transformation pipeline that produces
-      the same tensor every time it is applied to the same image.
-
-    WHY NO AUGMENTATION AT VALIDATION TIME:
-      Augmentation introduces randomness, which means validation metrics
-      would differ slightly on every evaluation epoch — making it hard to
-      compare epochs and choose the best checkpoint. We always want a
-      fair, reproducible benchmark against unseen data.
-
-    WHY CenterCrop instead of RandomCrop:
-      Centre-cropping captures the most informative part of the image
-      (subjects are usually centred by the photographer). It is the
-      standard deterministic alternative used in every major image
-      classification paper (e.g. ResNet, EfficientNet original papers).
-
-    Returns:
-        transforms.Compose — deterministic callable for PIL → Tensor.
-    """
+def get_val_transform(image_size: int = IMAGE_SIZE) -> transforms.Compose:
+    """Deterministic validation/inference pipeline — resizes to image_size, no augmentation."""
     return transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.CenterCrop(IMAGE_SIZE),     # deterministic, always same crop
+        transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=MEAN, std=STD),
     ])
@@ -327,6 +251,7 @@ def get_dataloaders(
     val_split: float = 0.2,
     num_workers: int = 4,
     pin_memory: bool = True,
+    image_size: int = IMAGE_SIZE,
 ) -> Tuple[DataLoader, DataLoader, List[str]]:
     """
     Create and return train and validation DataLoaders.
@@ -388,9 +313,9 @@ def get_dataloaders(
     num_workers = min(num_workers, os.cpu_count() or 1)
 
     if source == "oxford":
-        return _oxford_loaders(data_dir, batch_size, val_split, num_workers, pin_memory)
+        return _oxford_loaders(data_dir, batch_size, val_split, num_workers, pin_memory, image_size)
     elif source == "local":
-        return _local_loaders(data_dir, batch_size, num_workers, pin_memory)
+        return _local_loaders(data_dir, batch_size, num_workers, pin_memory, image_size)
     else:
         raise ValueError(f"Unknown source '{source}'. Choose 'oxford' or 'local'.")
 
@@ -405,6 +330,7 @@ def _oxford_loaders(
     val_split: float,
     num_workers: int,
     pin_memory: bool,
+    image_size: int = IMAGE_SIZE,
 ) -> Tuple[DataLoader, DataLoader, List[str]]:
     """
     Build DataLoaders from the Oxford-IIIT Pet Dataset (auto-downloaded).
@@ -445,11 +371,11 @@ def _oxford_loaders(
     # Two dataset instances — different transforms, same underlying files
     full_train_ds = OxfordPetBinaryDataset(
         root=data_dir, split="trainval",
-        transform=get_train_transform(), download=True,
+        transform=get_train_transform(image_size), download=True,
     )
     full_val_ds = OxfordPetBinaryDataset(
         root=data_dir, split="trainval",
-        transform=get_val_transform(), download=False,  # already downloaded above
+        transform=get_val_transform(image_size), download=False,
     )
 
     n_total = len(full_train_ds)
@@ -484,6 +410,7 @@ def _local_loaders(
     batch_size: int,
     num_workers: int,
     pin_memory: bool,
+    image_size: int = IMAGE_SIZE,
 ) -> Tuple[DataLoader, DataLoader, List[str]]:
     """
     Build DataLoaders from a local ImageFolder directory structure.
@@ -517,8 +444,8 @@ def _local_loaders(
             f"  {val_dir}/cats/    {val_dir}/dogs/"
         )
 
-    train_ds = LocalCatDogDataset(root=train_dir, transform=get_train_transform())
-    val_ds   = LocalCatDogDataset(root=val_dir,   transform=get_val_transform())
+    train_ds = LocalCatDogDataset(root=train_dir, transform=get_train_transform(image_size))
+    val_ds   = LocalCatDogDataset(root=val_dir,   transform=get_val_transform(image_size))
 
     print(f"[Dataset] Local — Train: {len(train_ds):,}  |  Val: {len(val_ds):,}")
 

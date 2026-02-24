@@ -37,34 +37,33 @@ COLORS = {"Cat": "#4C9BE8", "Dog": "#E87B4C"}
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def load_checkpoint(checkpoint_path: str, device: torch.device):
-    """Load model from checkpoint, returns (model, model_type, val_acc)."""
+    """Load model from checkpoint, returns (model, val_acc)."""
     ckpt = torch.load(checkpoint_path, map_location=device)
-    model_type = ckpt.get("model_type", "resnet18")
-    model = build_model(model_type).to(device)
+    model = build_model().to(device)
     model.load_state_dict(ckpt["model_state"])
     model.eval()
     val_acc = ckpt.get("val_acc", None)
-    print(f"[Checkpoint] Loaded {model_type} — best val acc: {val_acc:.2f}%")
-    return model, model_type, val_acc
+    print(f"[Checkpoint] Loaded CatDogCNN — best val acc: {val_acc:.2f}%")
+    return model, val_acc
 
 
 @torch.no_grad()
 def collect_predictions(model, val_loader, device):
     """
     Run model over the validation set and collect:
-      - all_probs:  P(Dog) for each image  [N]
-      - all_labels: true binary labels      [N]
+      - all_probs:  P(Dog) for each image  [N]   — Softmax output[:,1]
+      - all_labels: true binary labels      [N]   — 0=Cat, 1=Dog
       - all_images: raw tensors (still normalised) [N, 3, H, W]
     """
     all_probs, all_labels, all_images = [], [], []
     for images, labels in val_loader:
         images = images.to(device, non_blocking=True)
-        logits = model(images)
-        probs  = torch.sigmoid(logits).squeeze(1).cpu()
+        outputs = model(images)
+        probs   = outputs[:, 1].cpu()              # P(Dog) from Softmax column 1
         all_probs.append(probs)
         all_labels.append(labels)
         all_images.append(images.cpu())
-        if len(all_probs) * images.size(0) >= 1500:  # cap at 1500 samples for speed
+        if len(all_probs) * images.size(0) >= 1500:
             break
     return (
         torch.cat(all_probs).numpy(),
@@ -327,12 +326,12 @@ def main(args):
         print(f"[Skip] {ckpt_path} not found — skipping prediction plots")
         return
 
-    model, _, _ = load_checkpoint(str(ckpt_path), device)
+    model, _ = load_checkpoint(str(ckpt_path), device)
 
     print("[Data] Loading validation set …")
     _, val_loader, _ = get_dataloaders(
         source="oxford", data_dir=args.data_dir,
-        batch_size=64, num_workers=0,
+        batch_size=64, num_workers=0, image_size=150,
     )
 
     print("[Inference] Collecting predictions …")
