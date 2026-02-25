@@ -168,13 +168,13 @@ def plot_confusion_matrix(probs, labels, save_path: str) -> None:
 
 # ── plot 3: sample predictions grid ──────────────────────────────────────────
 
-def plot_sample_predictions(images, probs, labels, save_path: str, n=24) -> None:
-    """Grid of n images with true/predicted labels and confidence bar."""
+def plot_sample_predictions(images, probs, labels, save_path: str, n=9) -> None:
+    """3x3 grid of sample images with true/predicted labels and confidence score."""
     n = min(n, len(probs))
-    # Select a balanced mix: half correct, half incorrect (or all if not enough)
+    # Select a balanced mix: some correct, some incorrect (or all if not enough)
     correct_idx   = np.where((probs >= 0.5).astype(int) == labels.astype(int))[0]
     incorrect_idx = np.where((probs >= 0.5).astype(int) != labels.astype(int))[0]
-    n_wrong  = min(n // 4, len(incorrect_idx))
+    n_wrong  = min(n // 3, len(incorrect_idx))
     n_right  = n - n_wrong
     chosen   = np.concatenate([
         np.random.choice(correct_idx,   n_right, replace=False),
@@ -182,9 +182,9 @@ def plot_sample_predictions(images, probs, labels, save_path: str, n=24) -> None
     ]).astype(int)
     np.random.shuffle(chosen)
 
-    cols = 6
+    cols = 3
     rows = (n + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.8, rows * 3.2))
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 3.2, rows * 3.6))
     fig.patch.set_facecolor("#0F1117")
     axes = axes.flatten()
 
@@ -340,7 +340,7 @@ def main(args):
     plot_confusion_matrix(probs, labels,
                           str(out / "confusion_matrix.png"))
     plot_sample_predictions(images, probs, labels,
-                            str(out / "sample_predictions.png"), n=24)
+                            str(out / "sample_predictions.png"), n=9)
     plot_confidence_distribution(probs, labels,
                                  str(out / "confidence_distribution.png"))
     plot_per_class_accuracy(probs, labels,
