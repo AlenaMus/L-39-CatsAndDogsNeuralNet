@@ -156,8 +156,8 @@ def show_confidence_chart(image_path: str, result: dict, save_dir: str = "./outp
     stem     = Path(image_path).stem
     out_path = Path(save_dir) / f"prediction_{stem}.png"
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
     print(f"[Predict] Chart saved -> {out_path}")
-    plt.show()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
