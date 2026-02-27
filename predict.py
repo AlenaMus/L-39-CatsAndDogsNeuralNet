@@ -306,8 +306,8 @@ class CatDogPredictor:
         image  = Image.open(image_path).convert("RGB")
         tensor = self.transform(image).unsqueeze(0).to(self.device)
 
-        outputs  = self.model(tensor)          # (1, 2) Softmax [P(Cat), P(Dog)]
-        probs    = outputs[0].cpu()
+        outputs  = self.model(tensor)                         # (1, 2) raw logits
+        probs    = torch.softmax(outputs[0], dim=0).cpu()    # convert to probabilities
         prob_cat = probs[0].item()
         prob_dog = probs[1].item()
 

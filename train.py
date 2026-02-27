@@ -32,12 +32,15 @@ import json
 from pathlib import Path
 from typing import Dict, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix as sklearn_confusion_matrix
 
 from model import build_model
 from dataset import get_dataloaders
@@ -163,7 +166,7 @@ def train_one_epoch(
     for images, labels in loader:
         images = images.to(device, non_blocking=True)
 
-        labels = labels.to(device, non_blocking=True).long()  # (B,) class indices
+        labels = labels.to(device, non_blocking=True)  # (B,) long class indices
 
         optimizer.zero_grad(set_to_none=True)
 
@@ -391,6 +394,8 @@ def main(args: argparse.Namespace) -> None:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         image_size=150,
+        n_train_per_class=args.train_per_class,
+        n_val=args.val_samples,
     )
 
     # ── Model ─────────────────────────────────────────────────────────────────
@@ -476,6 +481,44 @@ def main(args: argparse.Namespace) -> None:
     # Generate and save training plots
     save_training_plot(history, str(save_dir / "training_curves.png"))
 
+    # ── Confusion matrix on best checkpoint ──────────────────────────────────
+    print("\n[Confusion Matrix] Evaluating best checkpoint on validation set ...")
+    best_state = torch.load(best_ckpt, map_location=device)
+    model.load_state_dict(best_state["model_state"])
+    model.eval()
+
+    all_preds, all_labels = [], []
+    with torch.no_grad():
+        for images, labels in val_loader:
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
+            preds  = model(images).argmax(dim=1)
+            all_preds.extend(preds.cpu().tolist())
+            all_labels.extend(labels.cpu().tolist())
+
+    cm      = sklearn_confusion_matrix(all_labels, all_preds)
+    cat_acc = cm[0, 0] / cm[0].sum() * 100
+    dog_acc = cm[1, 1] / cm[1].sum() * 100
+    overall = (cm[0, 0] + cm[1, 1]) / cm.sum() * 100
+
+    print(f"  Cat Accuracy : {cat_acc:.1f}%")
+    print(f"  Dog Accuracy : {dog_acc:.1f}%")
+    print(f"  Overall      : {overall:.1f}%")
+    print(f"  TN={cm[0,0]}  FP={cm[0,1]}  FN={cm[1,0]}  TP={cm[1,1]}")
+
+    fig, ax = plt.subplots(figsize=(5, 4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                xticklabels=class_names, yticklabels=class_names,
+                linewidths=0.5, annot_kws={"size": 14, "weight": "bold"}, ax=ax)
+    ax.set_xlabel("Predicted", fontsize=11)
+    ax.set_ylabel("Actual",    fontsize=11)
+    ax.set_title(f"Confusion Matrix  (Overall: {overall:.1f}%)", fontsize=12)
+    plt.tight_layout()
+    cm_path = save_dir / "confusion_matrix.png"
+    plt.savefig(cm_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"[Plot] Confusion matrix saved -> {cm_path}")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # parse_args() — Command-Line Interface
@@ -527,6 +570,12 @@ def parse_args() -> argparse.Namespace:
                         help="DataLoader prefetch worker processes (use 0 on Windows if errors)")
     parser.add_argument("--output-dir",  type=str, default="./output",
                         help="Directory to save checkpoints, history, and plots")
+    parser.add_argument("--train-per-class", type=int, default=0,
+                        help="Training images per class — 0 = use full dataset  "
+                             "(e.g. 2000 → 2000 cats + 2000 dogs = 4000 train images)")
+    parser.add_argument("--val-samples", type=int, default=0,
+                        help="Validation images drawn from the remainder — 0 = use full remainder  "
+                             "(e.g. 2000 → 2000 val images from leftover cats + dogs)")
     return parser.parse_args()
 
 

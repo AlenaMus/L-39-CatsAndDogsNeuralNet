@@ -67,9 +67,9 @@ def make_predictor(model, device):
 
         # Inference
         with torch.no_grad():
-            outputs = model(tensor)          # (1, 2) Softmax — [P(Cat), P(Dog)]
+            outputs = model(tensor)                              # (1, 2) raw logits
 
-        probs    = outputs[0].cpu().tolist() # [p_cat, p_dog]
+        probs    = torch.softmax(outputs[0], dim=0).cpu().tolist()  # [P(Cat), P(Dog)]
         prob_cat = probs[0]
         prob_dog = probs[1]
         predicted = CLASS_NAMES[int(prob_dog >= 0.5)]

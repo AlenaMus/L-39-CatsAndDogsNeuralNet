@@ -29,7 +29,7 @@ import os
 from typing import Tuple, List
 
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split, Subset
+from torch.utils.data import Dataset, DataLoader, random_split, Subset, ConcatDataset
 from torchvision import datasets, transforms
 from torchvision.datasets import OxfordIIITPet
 
@@ -166,7 +166,7 @@ class OxfordPetBinaryDataset(Dataset):
             label: Float tensor scalar — 0.0 for Cat, 1.0 for Dog.
         """
         image, species = self.inner[idx]           # binary-category ∈ {0=Cat, 1=Dog}
-        label = torch.tensor(float(species), dtype=torch.float32)  # already {0.0, 1.0}
+        label = torch.tensor(species, dtype=torch.long)  # long required by CrossEntropyLoss
         return image, label
 
 
@@ -252,6 +252,8 @@ def get_dataloaders(
     num_workers: int = 4,
     pin_memory: bool = True,
     image_size: int = IMAGE_SIZE,
+    n_train_per_class: int = 0,
+    n_val: int = 0,
 ) -> Tuple[DataLoader, DataLoader, List[str]]:
     """
     Create and return train and validation DataLoaders.
@@ -313,6 +315,11 @@ def get_dataloaders(
     num_workers = min(num_workers, os.cpu_count() or 1)
 
     if source == "oxford":
+        if n_train_per_class > 0:
+            return _oxford_loaders_balanced(
+                data_dir, batch_size, num_workers, pin_memory, image_size,
+                n_train_per_class, n_val,
+            )
         return _oxford_loaders(data_dir, batch_size, val_split, num_workers, pin_memory, image_size)
     elif source == "local":
         return _local_loaders(data_dir, batch_size, num_workers, pin_memory, image_size)
@@ -455,6 +462,160 @@ def _local_loaders(
     )
     val_loader = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+    )
+    return train_loader, val_loader, CLASS_NAMES
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# _oxford_class_indices — Read labels from annotation file (no image loading)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _oxford_class_indices(data_dir: str, split: str) -> Tuple[List[int], List[int], int]:
+    """
+    Parse the Oxford annotation file for a given split and return the dataset
+    indices for each species — without loading a single image.
+
+    The annotation file format (e.g. trainval.txt):
+        # Image CLASS-ID SPECIES BREED-ID
+        Abyssinian_1  1  1  1     ← col 2 SPECIES: 1=Cat, 2=Dog
+        basset_hound_1 2  2  1
+        ...
+
+    Args:
+        data_dir:  Root directory (same as passed to OxfordIIITPet).
+        split:     'trainval' or 'test'.
+    Returns:
+        (cat_indices, dog_indices, total)
+        Indices are 0-based positions into the corresponding OxfordPetBinaryDataset.
+    """
+    ann_file = os.path.join(data_dir, "oxford-iiit-pet", "annotations", f"{split}.txt")
+    cats: List[int] = []
+    dogs: List[int] = []
+    idx = 0
+    with open(ann_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            species = int(line.split()[2])   # col 2: 1=Cat, 2=Dog
+            (cats if species == 1 else dogs).append(idx)
+            idx += 1
+    return cats, dogs, idx
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# _oxford_loaders_balanced — Exact per-class sampling
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _oxford_loaders_balanced(
+    data_dir: str,
+    batch_size: int,
+    num_workers: int,
+    pin_memory: bool,
+    image_size: int,
+    n_train_per_class: int,
+    n_val: int,
+) -> Tuple[DataLoader, DataLoader, List[str]]:
+    """
+    Build DataLoaders with exactly n_train_per_class cats + n_train_per_class
+    dogs for training, and n_val images drawn from the remaining pool for
+    validation.
+
+    Uses BOTH the 'trainval' and 'test' Oxford splits to maximise the available
+    sample pool (~7,349 images total: ~2,371 cats + ~4,978 dogs).
+
+    Labels are read from the annotation text files (no image I/O), so building
+    the index lists is fast (~milliseconds).
+
+    Args:
+        n_train_per_class: How many cat images and how many dog images to use
+                           for training (e.g. 2000 → 4000 training images total).
+        n_val:             How many images to draw from the remainder for
+                           validation (drawn proportionally from leftover cats
+                           and dogs).
+    Raises:
+        ValueError: If the requested counts exceed what the dataset provides.
+    """
+    train_tf = get_train_transform(image_size)
+    val_tf   = get_val_transform(image_size)
+
+    # Download dataset if needed (images + annotations for both splits land
+    # in the same archive, so one download call is enough)
+    OxfordPetBinaryDataset(root=data_dir, split="trainval",
+                            transform=train_tf, download=True)
+
+    # ── Collect class indices from both splits ────────────────────────────────
+    tv_cats, tv_dogs, n_tv = _oxford_class_indices(data_dir, "trainval")
+    te_cats, te_dogs, _    = _oxford_class_indices(data_dir, "test")
+
+    # Offset test indices by trainval length so they index into a ConcatDataset
+    all_cats = tv_cats + [n_tv + i for i in te_cats]
+    all_dogs = tv_dogs + [n_tv + i for i in te_dogs]
+
+    # ── Validate availability ─────────────────────────────────────────────────
+    if n_train_per_class > len(all_cats):
+        raise ValueError(
+            f"Requested {n_train_per_class} cat training samples but only "
+            f"{len(all_cats)} cats are available across both splits."
+        )
+    if n_train_per_class > len(all_dogs):
+        raise ValueError(
+            f"Requested {n_train_per_class} dog training samples but only "
+            f"{len(all_dogs)} dogs are available across both splits."
+        )
+
+    # ── Reproducible shuffle and split ───────────────────────────────────────
+    rng = torch.Generator().manual_seed(42)
+
+    def _shuffle(lst: List[int]) -> List[int]:
+        perm = torch.randperm(len(lst), generator=rng).tolist()
+        return [lst[i] for i in perm]
+
+    all_cats = _shuffle(all_cats)
+    all_dogs = _shuffle(all_dogs)
+
+    train_indices     = all_cats[:n_train_per_class] + all_dogs[:n_train_per_class]
+    remaining_indices = all_cats[n_train_per_class:] + all_dogs[n_train_per_class:]
+
+    if n_val > len(remaining_indices):
+        raise ValueError(
+            f"Requested {n_val} validation samples but only "
+            f"{len(remaining_indices)} images remain after the training split."
+        )
+
+    remaining_indices = _shuffle(remaining_indices)
+    val_indices = remaining_indices[:n_val]
+
+    # ── Build combined datasets (trainval + test) with appropriate transforms ─
+    full_train = ConcatDataset([
+        OxfordPetBinaryDataset(data_dir, "trainval", transform=train_tf, download=False),
+        OxfordPetBinaryDataset(data_dir, "test",     transform=train_tf, download=False),
+    ])
+    full_val = ConcatDataset([
+        OxfordPetBinaryDataset(data_dir, "trainval", transform=val_tf, download=False),
+        OxfordPetBinaryDataset(data_dir, "test",     transform=val_tf, download=False),
+    ])
+
+    train_subset = Subset(full_train, train_indices)
+    val_subset   = Subset(full_val,   val_indices)
+
+    n_val_cats = sum(1 for i in val_indices if i < n_tv and i in set(tv_cats)
+                                           or i >= n_tv and (i - n_tv) in set(te_cats))
+    n_val_dogs = len(val_indices) - n_val_cats
+    print(
+        f"[Dataset] Train: {len(train_subset):,} "
+        f"({n_train_per_class:,} cats + {n_train_per_class:,} dogs)  |  "
+        f"Val: {len(val_subset):,} "
+        f"({n_val_cats:,} cats + {n_val_dogs:,} dogs)"
+    )
+
+    train_loader = DataLoader(
+        train_subset, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
+    )
+    val_loader = DataLoader(
+        val_subset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
     )
     return train_loader, val_loader, CLASS_NAMES

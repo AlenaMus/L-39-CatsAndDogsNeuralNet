@@ -59,7 +59,7 @@ def collect_predictions(model, val_loader, device):
     for images, labels in val_loader:
         images = images.to(device, non_blocking=True)
         outputs = model(images)
-        probs   = outputs[:, 1].cpu()              # P(Dog) from Softmax column 1
+        probs   = torch.softmax(outputs, dim=1)[:, 1].cpu()  # P(Dog) after softmax
         all_probs.append(probs)
         all_labels.append(labels)
         all_images.append(images.cpu())

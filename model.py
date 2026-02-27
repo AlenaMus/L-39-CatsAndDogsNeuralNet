@@ -35,7 +35,7 @@ class CatDogCNN(nn.Module):
     Custom CNN for cat/dog binary classification.
 
     Input:  (B, 3, 150, 150) — colour image resized to 150×150
-    Output: (B, 2)           — class scores [P(Cat), P(Dog)] via Softmax
+    Output: (B, 2)           — raw logits [logit(Cat), logit(Dog)]
 
     Architecture (spatial sizes after each block):
       Block 1: Conv(3→32, k=3, pad=0)  + ReLU + MaxPool(2) → (B, 32,  74, 74)
@@ -44,11 +44,10 @@ class CatDogCNN(nn.Module):
       Block 4: Conv(128→128,k=3,pad=0) + ReLU + MaxPool(2) → (B, 128,  7,  7)
       Flatten                                               → (B, 6272)
       Linear(6272→512) + ReLU                               → (B, 512)
-      Linear(512→2) + Softmax                               → (B, 2)
+      Linear(512→2)                                         → (B, 2)  raw logits
 
-    Loss: nn.CrossEntropyLoss  (works with the 2-logit output before Softmax,
-          but since Softmax is inside the model, outputs are probabilities
-          that sum to 1; CrossEntropyLoss still converges correctly.)
+    Loss: nn.CrossEntropyLoss — expects raw logits, applies log_softmax internally.
+    Inference: apply torch.softmax(output, dim=1) to convert logits to probabilities.
 
     IMAGE_SIZE class attribute tells train.py / dataset.py which resize to use.
     """
@@ -84,8 +83,9 @@ class CatDogCNN(nn.Module):
             nn.Flatten(),
             nn.Linear(128 * 7 * 7, 512),   # 6272 → 512
             nn.ReLU(),
-            nn.Linear(512, 2),              # 512  → 2 class scores
-            nn.Softmax(dim=1),              # → probabilities summing to 1
+            nn.Linear(512, 2),              # 512  → 2 raw logits (no Softmax here)
+            # NOTE: do NOT add Softmax here — CrossEntropyLoss applies log_softmax
+            # internally and requires raw logits. Apply torch.softmax() at inference.
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -93,7 +93,8 @@ class CatDogCNN(nn.Module):
         Args:
             x: (B, 3, 150, 150) colour image batch.
         Returns:
-            (B, 2) tensor — [P(Cat), P(Dog)] via Softmax.
+            (B, 2) tensor — raw logits [logit(Cat), logit(Dog)].
+            Use torch.softmax(output, dim=1) to convert to probabilities.
         """
         return self.classifier(self.features(x))
 
