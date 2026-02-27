@@ -38,13 +38,13 @@ class CatDogCNN(nn.Module):
     Output: (B, 2)           — raw logits [logit(Cat), logit(Dog)]
 
     Architecture (spatial sizes after each block):
-      Block 1: Conv(3→32, k=3, pad=0)  + ReLU + MaxPool(2) → (B, 32,  74, 74)
-      Block 2: Conv(32→64, k=3, pad=0) + ReLU + MaxPool(2) → (B, 64,  36, 36)
-      Block 3: Conv(64→128,k=3, pad=0) + ReLU + MaxPool(2) → (B, 128, 17, 17)
-      Block 4: Conv(128→128,k=3,pad=0) + ReLU + MaxPool(2) → (B, 128,  7,  7)
-      Flatten                                               → (B, 6272)
-      Linear(6272→512) + ReLU                               → (B, 512)
-      Linear(512→2)                                         → (B, 2)  raw logits
+      Block 1: Conv(3→32, k=3, pad=0)  + BN(32)  + ReLU + MaxPool(2) → (B, 32,  74, 74)
+      Block 2: Conv(32→64, k=3, pad=0) + BN(64)  + ReLU + MaxPool(2) → (B, 64,  36, 36)
+      Block 3: Conv(64→128,k=3, pad=0) + BN(128) + ReLU + MaxPool(2) → (B, 128, 17, 17)
+      Block 4: Conv(128→128,k=3,pad=0) + BN(128) + ReLU + MaxPool(2) → (B, 128,  7,  7)
+      Flatten                                                          → (B, 6272)
+      Linear(6272→512) + ReLU + Dropout(0.5)                          → (B, 512)
+      Linear(512→2)                                                    → (B, 2)  raw logits
 
     Loss: nn.CrossEntropyLoss — expects raw logits, applies log_softmax internally.
     Inference: apply torch.softmax(output, dim=1) to convert logits to probabilities.
@@ -60,21 +60,25 @@ class CatDogCNN(nn.Module):
         self.features = nn.Sequential(
             # Block 1: 150×150 → 148×148 → 74×74
             nn.Conv2d(3, 32, kernel_size=3, padding=0),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
 
             # Block 2: 74×74 → 72×72 → 36×36
             nn.Conv2d(32, 64, kernel_size=3, padding=0),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
 
             # Block 3: 36×36 → 34×34 → 17×17
             nn.Conv2d(64, 128, kernel_size=3, padding=0),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
 
             # Block 4: 17×17 → 15×15 → 7×7
             nn.Conv2d(128, 128, kernel_size=3, padding=0),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
         )
@@ -83,6 +87,7 @@ class CatDogCNN(nn.Module):
             nn.Flatten(),
             nn.Linear(128 * 7 * 7, 512),   # 6272 → 512
             nn.ReLU(),
+            nn.Dropout(0.5),               # reduces overfitting before final layer
             nn.Linear(512, 2),              # 512  → 2 raw logits (no Softmax here)
             # NOTE: do NOT add Softmax here — CrossEntropyLoss applies log_softmax
             # internally and requires raw logits. Apply torch.softmax() at inference.
@@ -114,4 +119,5 @@ if __name__ == "__main__":
     out    = model(batch)
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[CatDogCNN] output={out.shape}  trainable_params={params:,}")
-    # expected: output=torch.Size([4, 2])  trainable_params=3,453,634
+    # expected: output=torch.Size([4, 2])  trainable_params=3,454,338
+    # (3,453,634 original + 704 BatchNorm learnable params)
